@@ -4,33 +4,37 @@ import re, random, os
 import dbus, gobject
 from threading import Timer
 from dbus.mainloop.glib import DBusGMainLoop, threads_init
+from subprocess import Popen
 import writeLED
 
 class PidginSMS:
+	def recv_msg(self, account, sender, message, conv, flags):
+		if self.is_unseen(conv):
+			message = self.strip_html(message)
+			print sender, "said:", message
+			Popen(["espeak", "-v","sv","-s","100",
+			       sender + ": " + message])
 	def got_attention(self, account, sender, conv, type):
 		print sender, conv, type
 		writeLED.sendLED(["red", "100"])
 
 	def conversation_updated(self,conv,type):
-		k = self.purple.PurpleConversationGetData(conv,"unseen-count")
-		if k == 0:
-			writeLED.sendLED(["red", "0"])
-		else:
+		if self.is_unseen(conv):
 			writeLED.sendLED(["red", "5"])
+		else:
+			writeLED.sendLED(["red", "0"])
 			
-	def send_sms(self, message):
-		print "Sending SMS... from:",message[0],"containing:",message[1]
-
-
 	def strip_html(self, string):
 		p = re.compile("<[^<]*?>")
 		return p.sub("", string)
+	def is_unseen(self, conv):
+		k = self.purple.PurpleConversationGetData(conv,"unseen-count")
+		if k == 0:
+			return False
+		else:
+			return True
 
 	def __init__(self):
-		self.Convs = {}
-		self.messages = {}
-		self.t = None
-		self.askingForSMS = False
 		threads_init()
 		dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 		threads_init()
@@ -47,11 +51,16 @@ class PidginSMS:
 					dbus_interface=
 					"im.pidgin.purple.PurpleInterface",
 					signal_name="GotAttention")
-		#Signal for change
+		#Signal for CoversationUpdates
 		bus.add_signal_receiver(self.conversation_updated,
 					dbus_interface=
 					"im.pidgin.purple.PurpleInterface",
 					signal_name="ConversationUpdated")
+		#Signal for incomming messages
+		bus.add_signal_receiver(self.recv_msg,
+					dbus_interface=
+					"im.pidgin.purple.PurpleInterface",
+					signal_name="ReceivedImMsg")
 	def main(self):
 		loop = gobject.MainLoop()
 		gobject.threads_init()
